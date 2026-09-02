@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# 运行产物（训练日志 / 渲染输出 / mujoco 日志）
+logs/
+renders/
+MUJOCO_LOG.TXT
+
+# IDE / 系统
+.idea/
+.DS_Store
