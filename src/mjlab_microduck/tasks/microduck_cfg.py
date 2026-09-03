@@ -1,23 +1,25 @@
 from pathlib import Path
 
 import mujoco
-from mjlab.actuator import XmlActuatorCfg
+from bam.mjlab import BamActuatorCfg, bam_init
 from mjlab.entity import EntityCfg, EntityArticulationInfoCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp import joint_pos_rel, joint_vel_rel, projected_gravity, base_ang_vel, last_action, \
-    time_out, JointPositionActionCfg, push_by_setting_velocity, reset_root_state_uniform, base_lin_vel
+    time_out, JointPositionActionCfg, push_by_setting_velocity, reset_root_state_uniform, base_lin_vel, \
+    reset_joints_by_offset
 from mjlab.managers import ObservationTermCfg, ObservationGroupCfg, EventTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.scene import SceneCfg
 from mjlab.sim import SimulationCfg, MujocoCfg
 from mjlab.terrains import TerrainEntityCfg
+from mjlab.utils.spec_config import CollisionCfg
 from mjlab.viewer import ViewerConfig
 from mjlab.rl import RslRlModelCfg, RslRlOnPolicyRunnerCfg, RslRlPpoAlgorithmCfg
 
 _REPO = Path(__file__).resolve().parents[3]
 _DUCK_DIR = _REPO / "assets" / "microduck"
-_DUCK_XML = _DUCK_DIR / "robot_walk.xml"
+_DUCK_XML = _DUCK_DIR / "robot_allcollisions.xml"
 
 _STAND_JOINT_POS = {
     "left_hip_yaw": 0.0,
@@ -36,6 +38,13 @@ _STAND_JOINT_POS = {
     "right_ankle": -0.453,
 }
 
+_FULL_COLLISION = CollisionCfg(
+    geom_names_expr=[".*_collision"],
+    condim={r"^(left|right)_foot_collision$": 3, ".*_collision": 1},
+    priority={r"^(left|right)_foot_collision$": 1},
+    friction={r"^(left|right)_foot_collision$": (1.0,)},
+)
+
 
 def get_microduck_entity_cfg() -> EntityCfg:
     """
@@ -48,13 +57,23 @@ def get_microduck_entity_cfg() -> EntityCfg:
         # 正则是"关节名筛选"：排除 free 根关节(它没有执行器)，其余 14 个全部包进来
         articulation=EntityArticulationInfoCfg(
             actuators=(
-                XmlActuatorCfg(target_names_expr=(r"(?!.*freejoint).*",)),
+                # XmlActuatorCfg(target_names_expr=(r"(?!.*freejoint).*",)),
+                BamActuatorCfg(
+                    motor_name="xl330", model="m6",
+                    target_names_expr=(r"^(?!passive_).*",),
+                    kp_fw=200.0,
+                    vin_range=(6.5, 8.2),
+                    vin_min=6.0,
+                    delay_min_lag=3,
+                    delay_max_lag=3,# (ms)
+                ),
             ),
+            soft_joint_pos_limit_factor=0.9,
         ),
         # 初始位形 = STAND 站姿：根位置(0,0,0.12) + 关节角
         # 关节速度默认全 0，不用写
         init_state=EntityCfg.InitialStateCfg(
-            pos=(0.0, 0.0, 0.12),
+            pos=(0.0, 0.0, 0.1114),
             rot=(1.0, 0.0, 0.0, 0.0),
             joint_pos=_STAND_JOINT_POS,
         ),
@@ -98,13 +117,14 @@ def microduck_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     }
     cfg = ManagerBasedRlEnvCfg(
         events={
+            "bam_init": EventTermCfg(func=bam_init, mode="startup"),
             # 每回合初始姿态微扰: 稍微歪一点/带一点初速度开始
             "reset_disturbance": EventTermCfg(
                 func=reset_root_state_uniform,
                 mode="reset",
                 params={
                     "pose_range": {
-                        "x": (-0.05, 0.05), "y": (-0.05, 0.05), "z": (0.12, 0.12),
+                        "x": (-0.05, 0.05), "y": (-0.05, 0.05), "z": (0.0, 0.0),
                         "roll": (-0.1, 0.1), "pitch": (-0.1, 0.1), "yaw": (-0.2, 0.2),
                     },
                     "velocity_range": {
@@ -123,6 +143,14 @@ def microduck_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
                     },
                 },
             ),
+            "reset_to_stand": EventTermCfg(
+                func=reset_joints_by_offset,
+                mode="reset",
+                params={
+                    "position_range": (-0.02, 0.02),
+                    "velocity_range": (-0.02, 0.02),
+                }
+            )
         },
         scene=SceneCfg(
             terrain=TerrainEntityCfg(terrain_type="plane"),
@@ -152,7 +180,7 @@ def microduck_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
             "time_out": TerminationTermCfg(func=time_out, time_out=True),
             "fell": TerminationTermCfg(func=fell_term),
         },
-        sim=SimulationCfg(mujoco=MujocoCfg(timestep=0.01)),
+        sim=SimulationCfg(njmax=300, mujoco=MujocoCfg(timestep=0.01)),
         decimation=2,
         episode_length_s=10.0,
         viewer=ViewerConfig(
@@ -172,12 +200,12 @@ def microduck_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     return RslRlOnPolicyRunnerCfg(
         # 网络：actor/critic 都是 64x64 MLP(先小，够站立任务用)
         actor=RslRlModelCfg(
-            hidden_dims=(64, 64), activation="elu", obs_normalization=False,
+            hidden_dims=(64, 64), activation="elu", obs_normalization=True,
             distribution_cfg={"class_name": "GaussianDistribution",
                               "init_std": 1.0, "std_type": "scalar"},
         ),
         critic=RslRlModelCfg(
-            hidden_dims=(64, 64), activation="elu", obs_normalization=False,
+            hidden_dims=(64, 64), activation="elu", obs_normalization=True,
         ),
         # PPO 算法超参(先照抄，之后调)
         algorithm=RslRlPpoAlgorithmCfg(
