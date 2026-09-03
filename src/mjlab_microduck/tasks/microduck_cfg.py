@@ -5,8 +5,8 @@ from mjlab.actuator import XmlActuatorCfg
 from mjlab.entity import EntityCfg, EntityArticulationInfoCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp import joint_pos_rel, joint_vel_rel, projected_gravity, base_ang_vel, last_action, \
-    time_out, JointPositionActionCfg
-from mjlab.managers import ObservationTermCfg, ObservationGroupCfg
+    time_out, JointPositionActionCfg, push_by_setting_velocity, reset_root_state_uniform, base_lin_vel
+from mjlab.managers import ObservationTermCfg, ObservationGroupCfg, EventTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.scene import SceneCfg
@@ -71,8 +71,15 @@ def joint_dev_reward(env):
     """想贴近默认站姿: 关节离 STAND 越远，扣分越多(负值)。"""
     q = env.scene["robot"].data.joint_pos
     d = env.scene["robot"].data.default_joint_pos
-    return -((q - d) ** 2).mean(dim=1)
+    return ((q - d) ** 2).mean(dim=1)
 
+def base_velocity_penalty(env):
+    lin = env.scene["robot"].data.root_link_lin_vel_w
+    ang = env.scene["robot"].data.root_link_ang_vel_w
+    return (lin ** 2).sum(dim=1) + 0.1 * (ang ** 2).sum(dim=1)
+
+def joint_vel_penalty(env):
+    return (env.scene["robot"].data.joint_vel ** 2).mean(dim=1)
 
 def fell_term(env):
     """躯干(根部)低于 5cm 视为摔倒 → 终止本回合。"""
@@ -87,8 +94,36 @@ def microduck_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
         "gravity": ObservationTermCfg(func=projected_gravity),  # 3 维: 姿态(靠它站直)
         "ang_vel": ObservationTermCfg(func=base_ang_vel),  # 3 维: 机体角速度
         "actions": ObservationTermCfg(func=last_action),  # 14 维: 上一步动作
+        "base_lin_vel": ObservationTermCfg(func=base_lin_vel),
     }
     cfg = ManagerBasedRlEnvCfg(
+        events={
+            # 每回合初始姿态微扰: 稍微歪一点/带一点初速度开始
+            "reset_disturbance": EventTermCfg(
+                func=reset_root_state_uniform,
+                mode="reset",
+                params={
+                    "pose_range": {
+                        "x": (-0.05, 0.05), "y": (-0.05, 0.05), "z": (0.12, 0.12),
+                        "roll": (-0.1, 0.1), "pitch": (-0.1, 0.1), "yaw": (-0.2, 0.2),
+                    },
+                    "velocity_range": {
+                        "x": (-0.2, 0.2), "y": (-0.2, 0.2), "z": (0.0, 0.0),
+                    },
+                },
+            ),
+            # 训练/播放中每 2~5 秒随机"推一把"(给根节点加冲量)
+            "random_push": EventTermCfg(
+                func=push_by_setting_velocity,
+                mode="interval",
+                interval_range_s=(2.0, 5.0),
+                params={
+                    "velocity_range": {
+                        "x": (-0.2, 0.2), "y": (-0.3, 0.3), "z": (0.0, 0.0),
+                    },
+                },
+            ),
+        },
         scene=SceneCfg(
             terrain=TerrainEntityCfg(terrain_type="plane"),
             entities={"robot": get_microduck_entity_cfg()},
@@ -110,6 +145,8 @@ def microduck_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
         rewards={
             "upright": RewardTermCfg(func=upright_reward, weight=1.0),
             "joint_dev": RewardTermCfg(func=joint_dev_reward, weight=-0.1),
+            "vel_penalty": RewardTermCfg(func=base_velocity_penalty, weight=-1.0),
+            "jvel_penalty": RewardTermCfg(func=joint_vel_penalty, weight=-0.02),
         },
         terminations={
             "time_out": TerminationTermCfg(func=time_out, time_out=True),
@@ -144,17 +181,17 @@ def microduck_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
         ),
         # PPO 算法超参(先照抄，之后调)
         algorithm=RslRlPpoAlgorithmCfg(
-            learning_rate=1.0e-3, schedule="adaptive",   # 自适应退火 lr
-            gamma=0.99, lam=0.95,                        # 折扣/GAE
-            entropy_coef=0.01,                           # 探索
-            clip_param=0.2,                              # PPO clip
+            learning_rate=1.0e-3, schedule="adaptive",  # 自适应退火 lr
+            gamma=0.99, lam=0.95,  # 折扣/GAE
+            entropy_coef=0.01,  # 探索
+            clip_param=0.2,  # PPO clip
             num_learning_epochs=5, num_mini_batches=4,
             value_loss_coef=1.0, use_clipped_value_loss=True,
             desired_kl=0.01, max_grad_norm=1.0,
         ),
         # 训练节奏 & 存档
-        experiment_name="microduck",   # 决定 logs/rsl_rl/<name>/ 目录名
+        experiment_name="microduck",  # 决定 logs/rsl_rl/<name>/ 目录名
         num_steps_per_env=32,
-        save_interval=200,             # 每 200 轮存一次 checkpoint
-        max_iterations=1000,           # 默认上限，CPU 冒烟时用 CLI 覆盖小值
+        save_interval=200,  # 每 200 轮存一次 checkpoint
+        max_iterations=1000,  # 默认上限，CPU 冒烟时用 CLI 覆盖小值
     )

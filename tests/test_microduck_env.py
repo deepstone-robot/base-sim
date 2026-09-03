@@ -14,13 +14,12 @@ def _make_venv(num_envs=2):
 def test_obs_and_action_shape():
     venv = _make_venv()
     obs = venv.get_observations()
-    assert obs["actor"].shape == (2, 48)
-    assert obs["critic"].shape == (2, 48)
+    assert obs["actor"].shape == (2, 51)
+    assert obs["critic"].shape == (2, 51)
     assert venv.action_space.shape == (2, 14)
 
 def test_random_Steps_are_finite():
     venv = _make_venv()
-    obs = venv.get_observations()
     for _ in range(20):
         a = 2 * torch.rand(venv.action_space.shape) - 1
         obs, rew, dones, extras = venv.step(a)
