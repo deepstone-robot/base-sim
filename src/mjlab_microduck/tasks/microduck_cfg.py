@@ -119,36 +119,36 @@ def microduck_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
         events={
             "bam_init": EventTermCfg(func=bam_init, mode="startup"),
             # 每回合初始姿态微扰: 稍微歪一点/带一点初速度开始
-            "reset_disturbance": EventTermCfg(
-                func=reset_root_state_uniform,
-                mode="reset",
-                params={
-                    "pose_range": {
-                        "x": (-0.05, 0.05), "y": (-0.05, 0.05), "z": (0.0, 0.0),
-                        "roll": (-0.1, 0.1), "pitch": (-0.1, 0.1), "yaw": (-0.2, 0.2),
-                    },
-                    "velocity_range": {
-                        "x": (-0.2, 0.2), "y": (-0.2, 0.2), "z": (0.0, 0.0),
-                    },
-                },
-            ),
+            # "reset_disturbance": EventTermCfg(
+            #     func=reset_root_state_uniform,
+            #     mode="reset",
+            #     params={
+            #         "pose_range": {
+            #             "x": (-0.05, 0.05), "y": (-0.05, 0.05), "z": (0.0, 0.0),
+            #             "roll": (-0.1, 0.1), "pitch": (-0.1, 0.1), "yaw": (-0.2, 0.2),
+            #         },
+            #         "velocity_range": {
+            #             "x": (-0.2, 0.2), "y": (-0.2, 0.2), "z": (0.0, 0.0),
+            #         },
+            #     },
+            # ),
             # 训练/播放中每 2~5 秒随机"推一把"(给根节点加冲量)
-            "random_push": EventTermCfg(
-                func=push_by_setting_velocity,
-                mode="interval",
-                interval_range_s=(2.0, 5.0),
-                params={
-                    "velocity_range": {
-                        "x": (-0.2, 0.2), "y": (-0.3, 0.3), "z": (0.0, 0.0),
-                    },
-                },
-            ),
+            # "random_push": EventTermCfg(
+            #     func=push_by_setting_velocity,
+            #     mode="interval",
+            #     interval_range_s=(2.0, 5.0),
+            #     params={
+            #         "velocity_range": {
+            #             "x": (-0.2, 0.2), "y": (-0.3, 0.3), "z": (0.0, 0.0),
+            #         },
+            #     },
+            # ),
             "reset_to_stand": EventTermCfg(
                 func=reset_joints_by_offset,
                 mode="reset",
                 params={
-                    "position_range": (-0.02, 0.02),
-                    "velocity_range": (-0.02, 0.02),
+                    "position_range": (0.0, 0.0),
+                    "velocity_range": (0.0, 0.0),
                 }
             )
         },
@@ -173,15 +173,16 @@ def microduck_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
         rewards={
             "upright": RewardTermCfg(func=upright_reward, weight=1.0),
             "joint_dev": RewardTermCfg(func=joint_dev_reward, weight=-0.1),
-            "vel_penalty": RewardTermCfg(func=base_velocity_penalty, weight=-1.0),
+            "vel_penalty": RewardTermCfg(func=base_velocity_penalty, weight=-0.2),
             "jvel_penalty": RewardTermCfg(func=joint_vel_penalty, weight=-0.02),
         },
         terminations={
             "time_out": TerminationTermCfg(func=time_out, time_out=True),
             "fell": TerminationTermCfg(func=fell_term),
         },
-        sim=SimulationCfg(njmax=300, mujoco=MujocoCfg(timestep=0.01)),
-        decimation=2,
+        # 物理步长 0.002s(和上游一致, 接触+高刚度执行器需要细步长), decimation 10 → 控制频率仍是 50Hz
+        sim=SimulationCfg(njmax=300, mujoco=MujocoCfg(timestep=0.002)),
+        decimation=10,
         episode_length_s=10.0,
         viewer=ViewerConfig(
             origin_type=ViewerConfig.OriginType.ASSET_BODY,
