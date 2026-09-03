@@ -3,7 +3,7 @@ requires = ["uv_build>=0.8.19,<0.9.0"]
 build-backend = "uv_build"
 
 [project]
-name = "base-sim"
+name = "mjlab-microduck"
 version = "0.1.0"
 description = "MuJoCo / mjlab simulation environment, forked from the microduck_rl stack"
 readme = "README.md"
@@ -87,3 +87,7 @@ name = "pytorch-cu129"
 url = "https://download.pytorch.org/whl/cu129"
 # explicit: only packages that name this index resolve from it.
 explicit = true
+
+# 让 mjlab 启动时自动 import 本包 → 触发 tasks/__init__.py 里的注册
+[project.entry-points."mjlab.tasks"]
+mjlab_microduck_tasks = "mjlab_microduck.tasks"

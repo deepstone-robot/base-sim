@@ -13,8 +13,9 @@ from mjlab.scene import SceneCfg
 from mjlab.sim import SimulationCfg, MujocoCfg
 from mjlab.terrains import TerrainEntityCfg
 from mjlab.viewer import ViewerConfig
+from mjlab.rl import RslRlModelCfg, RslRlOnPolicyRunnerCfg, RslRlPpoAlgorithmCfg
 
-_REPO = Path(__file__).resolve().parents[1]
+_REPO = Path(__file__).resolve().parents[3]
 _DUCK_DIR = _REPO / "assets" / "microduck"
 _DUCK_XML = _DUCK_DIR / "robot_walk.xml"
 
@@ -126,3 +127,34 @@ def microduck_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
         cfg.episode_length_s = 1e10
         cfg.observations["actor"].enable_corruption = False
     return cfg
+
+
+# ============ ③ RL 训练器配置 (PPO 超参) ============
+def microduck_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
+    """rsl_rl 的 PPO 配置：网络结构 + 算法超参 + 训练节奏。"""
+    return RslRlOnPolicyRunnerCfg(
+        # 网络：actor/critic 都是 64x64 MLP(先小，够站立任务用)
+        actor=RslRlModelCfg(
+            hidden_dims=(64, 64), activation="elu", obs_normalization=False,
+            distribution_cfg={"class_name": "GaussianDistribution",
+                              "init_std": 1.0, "std_type": "scalar"},
+        ),
+        critic=RslRlModelCfg(
+            hidden_dims=(64, 64), activation="elu", obs_normalization=False,
+        ),
+        # PPO 算法超参(先照抄，之后调)
+        algorithm=RslRlPpoAlgorithmCfg(
+            learning_rate=1.0e-3, schedule="adaptive",   # 自适应退火 lr
+            gamma=0.99, lam=0.95,                        # 折扣/GAE
+            entropy_coef=0.01,                           # 探索
+            clip_param=0.2,                              # PPO clip
+            num_learning_epochs=5, num_mini_batches=4,
+            value_loss_coef=1.0, use_clipped_value_loss=True,
+            desired_kl=0.01, max_grad_norm=1.0,
+        ),
+        # 训练节奏 & 存档
+        experiment_name="microduck",   # 决定 logs/rsl_rl/<name>/ 目录名
+        num_steps_per_env=32,
+        save_interval=200,             # 每 200 轮存一次 checkpoint
+        max_iterations=1000,           # 默认上限，CPU 冒烟时用 CLI 覆盖小值
+    )

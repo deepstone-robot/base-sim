@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 .venv/
 *.egg-info/
+.pytest_cache/
 
 # 运行产物（训练日志 / 渲染输出 / mujoco 日志）
 logs/

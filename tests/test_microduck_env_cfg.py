@@ -1,6 +1,6 @@
 import mujoco
 
-from tasks.microduck_cfg import get_microduck_entity_cfg, _STAND_JOINT_POS
+from mjlab_microduck.tasks import get_microduck_entity_cfg, _STAND_JOINT_POS
 
 JOINT = mujoco.mjtObj.mjOBJ_JOINT
 

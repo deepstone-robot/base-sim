@@ -2,7 +2,7 @@ import torch
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import RslRlVecEnvWrapper
 
-from tasks.microduck_cfg import microduck_env_cfg
+from mjlab_microduck.tasks import microduck_env_cfg
 
 
 def _make_venv(num_envs=2):
