@@ -62,6 +62,8 @@ uv run mjpython -m mjlab.scripts.play Mjlab-Stand-Flat-MicroDuck --agent trained
 
 ### 训练
 
+训练入口是 `uv run train <task>`（即 `mjlab/scripts/train.py`），CLI 字段由 `TrainConfig`（env / agent / video / gpu-ids / wandb-* / enable-nan-guard 等）暴露，所有 `dataclass` 字段都可通过点号 CLI 覆盖。
+
 ```bash
 # CPU 冒烟(几十秒~几分钟): 验证"训练链路能跑通", 不产出可用策略
 scripts/run_cpu.sh Mjlab-Stand-Flat-MicroDuck \
@@ -71,12 +73,106 @@ scripts/run_cpu.sh Mjlab-Stand-Flat-MicroDuck \
 scripts/run_cpu.sh Mjlab-Stand-Flat-MicroDuck \
   --env.scene.num-envs 16 --agent.max-iterations 300 \
   --video True --video-interval 50 --video-length 120
-
-# GPU 全量训练(真学习; 需要 NVIDIA GPU, macOS 不支持训练)
-uv run train Mjlab-Stand-Flat-MicroDuck --env.scene.num-envs 4096
 ```
 
-训练产物：`logs/rsl_rl/microduck/<时间戳>/`（checkpoint `model_*.pt`、TensorBoard 事件、解析后配置 `params/*.yaml`、录像 `videos/train/`）。
+### GPU 训练（真学习 — Linux + NVIDIA）
+
+CPU 冒烟只验证链路，不学策略；"学没学会"必须靠 GPU 全量训练观察。
+
+**前置条件**
+
+| 项 | 要求 |
+|---|---|
+| OS | Linux（macOS 不支持训练；本机用 `scripts/run_cpu.sh` 仅做冒烟） |
+| GPU | NVIDIA 独显 ≥ 1 张，显存按并行度定（`num-envs=4096` 通常要 16~24 GiB） |
+| 驱动 / CUDA | 主机装有与 `warp-lang==1.12.0` 兼容的 CUDA runtime（参考官方 warp 的 CUDA 支持矩阵） |
+| Python | 3.12.x（见 `pyproject.toml` 的 `<3.13` 上界） |
+
+> `pyproject.toml` 已按平台路由 torch 源：x86_64 Linux 直接走 PyPI（自带 CUDA 运行时依赖），linux-aarch64（DGX Spark / GB10 等 PyPI 只有 CPU 轮的机器）改走 `cu129` 索引，无需手动改 source。
+
+**一次性确认 CUDA 链路通畅**
+
+```bash
+uv sync                                                 # 拉好依赖
+uv run python -c "import torch; print(torch.cuda.is_available(), torch.cuda.device_count())"
+# 期望: True (>=1) — False/0 就是 wheel 没匹配上, 看 pyproject.toml 的 torch source 注释
+
+uv run list-envs                                        # 应看到 Mjlab-Stand-Flat-MicroDuck
+```
+
+**单卡训练（最常用）**
+
+```bash
+# 默认就用第 0 张卡; num-envs=4096 是站立任务的经验起点
+uv run train Mjlab-Stand-Flat-MicroDuck --env.scene.num-envs 4096
+
+# 显式指定某张卡 (默认 --gpu-ids [0])
+uv run train Mjlab-Stand-Flat-MicroDuck --gpu-ids 1
+
+# 加长训练 + 改名 run, 方便回放时对得上
+uv run train Mjlab-Stand-Flat-MicroDuck \
+  --env.scene.num-envs 4096 \
+  --agent.max-iterations 5000 \
+  --agent.save-interval 500 \
+  --agent.run-name stand_v1
+```
+
+启动后日志里看到 `Training with: device=cuda:0` 即代表跑在 GPU 上；如果打到 `cpu` 说明 `CUDA_VISIBLE_DEVICES` 没设上。
+
+**多卡训练（torchrunx 自动起 N 个 worker）**
+
+```bash
+# 自动用上所有可见 GPU (物理 GPU 个数 = torchrunx worker 数)
+uv run train Mjlab-Stand-Flat-MicroDuck --gpu-ids all --env.scene.num-envs 4096
+
+# 指定几张
+uv run train Mjlab-Stand-Flat-MicroDuck --gpu-ids 0 1 2 3 --env.scene.num-envs 8192
+
+# 关闭 torchrunx 自己的 log 子目录
+uv run train Mjlab-Stand-Flat-MicroDuck --gpu-ids all --torchrunx-log-dir ""
+```
+
+torchrunx 子进程的 stdout 会写到 `logs/rsl_rl/<experiment>/<run>/torchrunx/` 下。
+
+**从 checkpoint 续训**
+
+```bash
+# 从本地某个 run 的某个 checkpoint 接上继续学
+uv run train Mjlab-Stand-Flat-MicroDuck \
+  --agent.resume True \
+  --agent.load-run 2026-09-04_15-12-33_stand_v1 \
+  --agent.load-checkpoint model_1000.pt
+
+# 从 W&B 上的 run 拉 checkpoint 续训 (需 wandb 已登录)
+uv run train Mjlab-Stand-Flat-MicroDuck \
+  --agent.resume True \
+  --wandb-run-path <entity>/<project>/<run_id> \
+  --wandb-checkpoint-name model_2000.pt
+```
+
+**训练时录像 + NaN 防护**
+
+```bash
+# 每 200 轮录 200 步一段 (默认只在 rank 0 录, 多卡下不会重复写)
+uv run train Mjlab-Stand-Flat-MicroDuck \
+  --video True --video-interval 200 --video-length 200
+
+# 物理仿真出 NaN 时立刻停掉并 dump 现场, 排查奖励 / 关节爆掉
+uv run train Mjlab-Stand-Flat-MicroDuck --enable-nan-guard True
+```
+
+**训练产物**
+
+`logs/rsl_rl/microduck/<时间戳>[_run_name]/` 下：
+
+```
+model_*.pt            # 周期性 checkpoint (默认 save-interval=200)
+params/env.yaml       # 训练用的 env 配置快照
+params/agent.yaml     # 训练用的 PPO runner 配置快照
+videos/train/         # --video 开启时的 mp4 片段
+events.out.tfevents.* # TensorBoard 日志
+config.json           # git 哈希 + 完整配置 (复现用)
+```
 
 ### 看训练曲线（TensorBoard）
 

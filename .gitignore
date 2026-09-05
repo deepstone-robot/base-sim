@@ -13,3 +13,6 @@ MUJOCO_LOG.TXT
 # IDE / 系统
 .idea/
 .DS_Store
+
+# 根目录游离的 checkpoint(应放 logs/ 下, 不入库)
+/model_*.pt

@@ -119,30 +119,30 @@ def microduck_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
         events={
             "bam_init": EventTermCfg(func=bam_init, mode="startup"),
             # 每回合初始姿态微扰: 稍微歪一点/带一点初速度开始
-            # "reset_disturbance": EventTermCfg(
-            #     func=reset_root_state_uniform,
-            #     mode="reset",
-            #     params={
-            #         "pose_range": {
-            #             "x": (-0.05, 0.05), "y": (-0.05, 0.05), "z": (0.0, 0.0),
-            #             "roll": (-0.1, 0.1), "pitch": (-0.1, 0.1), "yaw": (-0.2, 0.2),
-            #         },
-            #         "velocity_range": {
-            #             "x": (-0.2, 0.2), "y": (-0.2, 0.2), "z": (0.0, 0.0),
-            #         },
-            #     },
-            # ),
+            "reset_disturbance": EventTermCfg(
+                func=reset_root_state_uniform,
+                mode="reset",
+                params={
+                    "pose_range": {
+                        "x": (-0.02, 0.02), "y": (-0.02, 0.02), "z": (0.0, 0.0),
+                        "roll": (-0.03, 0.03), "pitch": (-0.03, 0.03), "yaw": (-0.05, 0.05),
+                    },
+                    "velocity_range": {
+                        "x": (-0.05, 0.05), "y": (-0.05, 0.05), "z": (0.0, 0.0),
+                    },
+                },
+            ),
             # 训练/播放中每 2~5 秒随机"推一把"(给根节点加冲量)
-            # "random_push": EventTermCfg(
-            #     func=push_by_setting_velocity,
-            #     mode="interval",
-            #     interval_range_s=(2.0, 5.0),
-            #     params={
-            #         "velocity_range": {
-            #             "x": (-0.2, 0.2), "y": (-0.3, 0.3), "z": (0.0, 0.0),
-            #         },
-            #     },
-            # ),
+            "random_push": EventTermCfg(
+                func=push_by_setting_velocity,
+                mode="interval",
+                interval_range_s=(0.1, 1.0),
+                params={
+                    "velocity_range": {
+                        "x": (-0.5, 0.5), "y": (-0.5, 0.5), "z": (0.0, 0.0),"pitch": (-0.6, 0.6),
+                    },
+                },
+            ),
             "reset_to_stand": EventTermCfg(
                 func=reset_joints_by_offset,
                 mode="reset",
