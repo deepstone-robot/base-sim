@@ -154,6 +154,8 @@ uv run train Mjlab-Stand-Flat-MicroDuck \
 
 ```bash
 # 在仓库根目录执行; 训练日志重定向到 logs/, 记下 PID 方便以后停
+export WANDB_MODE=disabled
+
 cd /data/base-sim
 nohup uv run train Mjlab-Stand-Flat-MicroDuck \
   --env.scene.num-envs 4096 \

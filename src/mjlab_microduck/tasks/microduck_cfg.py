@@ -85,6 +85,13 @@ def upright_reward(env):
         直立时它是 (0,0,-1)，z=-1；取 -z → 直立=+1。"""
     return -env.scene["robot"].data.projected_gravity_b[:, 2]
 
+def stand_reward(env):
+    """只有"又直又高"(真正站立)才算分: 竖直程度 × 躯干高度。"""
+    upright = -env.scene["robot"].data.projected_gravity_b[:, 2]   # 0~1
+    z = env.scene["robot"].data.root_link_pos_w[:, 2]
+    # 高度从 0.085(≈坐) 到 0.115(≈站) 线性过渡到 1
+    height = ((z - 0.085).clamp(min=0) / 0.03).clamp(max=1.0)
+    return upright * height
 
 def joint_dev_reward(env):
     """想贴近默认站姿: 关节离 STAND 越远，扣分越多(负值)。"""
@@ -139,7 +146,7 @@ def microduck_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
                 interval_range_s=(2.0, 4.0),
                 params={
                     "velocity_range": {
-                        "x": (-0.15, 0.15), "y": (-0.15, 0.15), "z": (0.0, 0.0),"pitch": (-0.2, 0.2),
+                        "x": (-0.3, 0.3), "y": (-0.3, 0.3), "z": (0.0, 0.0),"pitch": (-0.2, 0.2),
                     },
                 },
             ),

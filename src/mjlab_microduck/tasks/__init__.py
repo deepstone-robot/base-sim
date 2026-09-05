@@ -15,10 +15,21 @@ from mjlab_microduck.tasks.microduck_cfg import (
     microduck_env_cfg,
     microduck_ppo_runner_cfg,
 )
+from mjlab_microduck.tasks.microduck_sit2stand_cfg import (
+    microduck_sitstand_env_cfg,
+    microduck_sit2stand_ppo_runner_cfg,
+)
 
 register_mjlab_task(
     task_id="Mjlab-Stand-Flat-MicroDuck",   # 命名约定: 技能-地形-机器人
     env_cfg=microduck_env_cfg(),
     play_env_cfg=microduck_env_cfg(play=True),
     rl_cfg=microduck_ppo_runner_cfg(),
+)
+
+register_mjlab_task(
+    task_id="Mjlab-Sit2Stand-Flat-MicroDuck",   # R1: 坐→站
+    env_cfg=microduck_sitstand_env_cfg(),
+    play_env_cfg=microduck_sitstand_env_cfg(play=True),
+    rl_cfg=microduck_sit2stand_ppo_runner_cfg(),
 )
