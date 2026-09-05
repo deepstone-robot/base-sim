@@ -150,6 +150,29 @@ uv run train Mjlab-Stand-Flat-MicroDuck \
   --wandb-checkpoint-name model_2000.pt
 ```
 
+**后台运行（nohup，适合 SSH / 容器断开后继续）**
+
+```bash
+# 在仓库根目录执行; 训练日志重定向到 logs/, 记下 PID 方便以后停
+cd /data/base-sim
+nohup uv run train Mjlab-Stand-Flat-MicroDuck \
+  --env.scene.num-envs 4096 \
+  --agent.max-iterations 300 \
+  --agent.save-interval 100 \
+  --agent.run-name push-p1 \
+  > logs/train_push-p1.log 2>&1 &
+echo $! > logs/train_push-p1.pid
+
+# 看进度(终端实时打印每轮指标)
+tail -f logs/train_push-p1.log
+
+# 停止
+kill $(cat logs/train_push-p1.pid)
+
+# run-name 语义: 日志目录 = logs/rsl_rl/<experiment>/<时间戳>_<run-name>
+# 起名建议带"内容+难度+版本", 如 push-x015-v1 / push-p2-med-v1, 方便回放与续训时定位
+```
+
 **训练时录像 + NaN 防护**
 
 ```bash
