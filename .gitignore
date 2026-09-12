@@ -9,6 +9,8 @@ __pycache__/
 logs/
 renders/
 MUJOCO_LOG.TXT
+nohup.out
+:memory:.ses      # onnxruntime 的会话产物(在仓库根目录生成)
 
 # IDE / 系统
 .idea/

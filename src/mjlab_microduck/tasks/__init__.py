@@ -19,6 +19,10 @@ from mjlab_microduck.tasks.microduck_sit2stand_cfg import (
     microduck_sitstand_env_cfg,
     microduck_sit2stand_ppo_runner_cfg,
 )
+from mjlab_microduck.tasks.microduck_walk_cfg import (
+    microduck_walk_env_cfg,
+    microduck_walk_ppo_runner_cfg,
+)
 
 register_mjlab_task(
     task_id="Mjlab-Stand-Flat-MicroDuck",   # 命名约定: 技能-地形-机器人
@@ -32,4 +36,11 @@ register_mjlab_task(
     env_cfg=microduck_sitstand_env_cfg(),
     play_env_cfg=microduck_sitstand_env_cfg(play=True),
     rl_cfg=microduck_sit2stand_ppo_runner_cfg(),
+)
+
+register_mjlab_task(
+    task_id="Mjlab-Velocity-Flat-MicroDuck",   # W: 平地速度跟踪(行走)
+    env_cfg=microduck_walk_env_cfg(),
+    play_env_cfg=microduck_walk_env_cfg(play=True),
+    rl_cfg=microduck_walk_ppo_runner_cfg(),
 )
