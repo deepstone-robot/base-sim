@@ -174,8 +174,13 @@ uv run list-envs                                        # 应看到 Mjlab-Stand-
 # 默认就用第 0 张卡; num-envs=4096 是站立任务的经验起点
 uv run train Mjlab-Stand-Flat-MicroDuck --env.scene.num-envs 4096
 
-# 显式指定某张卡 (默认 --gpu-ids [0])
-uv run train Mjlab-Stand-Flat-MicroDuck --gpu-ids 1
+# 指定显卡: **不传 = 用第 0 张**(默认 [0]); 多卡空格分隔; 全用可用 all
+uv run train Mjlab-Stand-Flat-MicroDuck --gpu-ids 0 1        # 0、1 两张
+uv run train Mjlab-Stand-Flat-MicroDuck --gpu-ids all        # 所有可见卡
+# ⚠️ 别写 `--gpu-ids 1` 这种"单个数字"的形式: 该字段类型是 list[int]|Literal["all"]|None,
+#    在真实 CLI(跟 task 的 union 解析一起)下会报
+#      "Error parsing --gpu-ids: ... Value 0 (type int) does not match expected type list[int]"
+#    (2026-09-12 实测踩到)。单卡就干脆不传这个参数。
 
 # 加长训练 + 改名 run, 方便回放时对得上
 uv run train Mjlab-Stand-Flat-MicroDuck \
