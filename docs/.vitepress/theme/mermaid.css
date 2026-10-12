@@ -1,0 +1,11 @@
+/* mermaid 图渲染后的容器（.mermaid 类由 theme/index.ts 挂上） */
+.mermaid {
+  display: flex;
+  justify-content: center;
+  margin: 1.25rem 0;
+}
+
+.mermaid svg {
+  max-width: 100%;
+  height: auto;
+}

@@ -1,0 +1,17 @@
+{
+  "name": "base-sim-docs",
+  "version": "0.0.0",
+  "private": true,
+  "description": "base-sim · MicroDuck 文档站（VitePress）",
+  "scripts": {
+    "docs:dev": "vitepress dev docs --host 127.0.0.1",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
+  },
+  "devDependencies": {
+    "mermaid": "12.1.0",
+    "pagefind": "1.5.2",
+    "vitepress": "1.6.4",
+    "vitepress-plugin-pagefind": "0.4.25"
+  }
+}

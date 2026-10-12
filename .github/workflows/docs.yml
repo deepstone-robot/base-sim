@@ -1,0 +1,72 @@
+name: docs
+
+# 只在文档相关文件变化时构建, 避免每次改任务配置都重跑文档站
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"                  # 已覆盖 docs/.vitepress/**, 下面一行是显式兜底
+      - "docs/.vitepress/**"
+      - "package.json"             # 依赖变了必须重建站点
+      - "package-lock.json"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    paths:
+      - "docs/**"
+      - "docs/.vitepress/**"
+      - "package.json"
+      - "package-lock.json"
+  workflow_dispatch:        # 也允许在 Actions 页面手动触发
+
+# GitHub Pages 的标准三件套: 读仓库 + 写 Pages + 用 OIDC 令牌部署(不需要 PAT)
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时间只允许一个部署; 不取消进行中的那次(避免站点处于半个状态)
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # lastUpdated / 搜索索引都靠 git 历史取时间戳; 默认的浅克隆会拿到空白时间
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24        # 与 package-lock.json 的生成环境一致
+          cache: npm
+
+      # 文档站刻意不依赖 mjlab/mujoco/torch —— 只装 4 个 JS 包,
+      # 构建与物理库的平台轮子问题完全解耦
+      - name: 安装文档依赖
+        run: npm ci
+
+      - name: 构建站点（内链写错会直接失败，等价于原来的 mkdocs build --strict）
+        run: npm run docs:build
+
+      - uses: actions/configure-pages@v5
+
+      - name: 上传产物
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # VitePress 默认输出目录 = <root>/.vitepress/dist
+          path: docs/.vitepress/dist
+
+  deploy:
+    needs: build
+    # PR 只构建不部署(仓库外的人改文档不会碰线上站点)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -5,6 +5,12 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 
+# Node 依赖与 VitePress 构建产物（文档站由 GitHub Actions 重建）
+node_modules/
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+docs/.vitepress/.temp/
+
 # 运行产物（训练日志 / 渲染输出 / mujoco 日志）
 logs/
 renders/

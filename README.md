@@ -4,6 +4,24 @@
 
 > 原名 base-sim，项目/包已改名 `mjlab-microduck` / `mjlab_microduck`（与上游 microduck_rl 对齐）。
 
+## 📖 文档站
+
+**完整文档在 [`docs/`](docs/index.md)**（VitePress，部署到 GitHub Pages：`Settings → Pages → Source` 选 **GitHub Actions** 后，push 到 `main` 自动发布）：
+
+| 想看什么 | 去哪 |
+|---|---|
+| 门面与 30 秒上手 | [`docs/index.md`](docs/index.md) |
+| 一个环境由哪些部件组成、一次 `step()` 里发生什么 | [`docs/architecture.md`](docs/architecture.md) |
+| 三个任务分别是什么、谁学会了 | [`docs/tasks/`](docs/tasks/index.md) |
+| 改奖励之前必读（设计原则 + 失败模式史） | [`docs/reward-design.md`](docs/reward-design.md) · [`docs/failure-modes.md`](docs/failure-modes.md) |
+| 机器人资产 / 关节序 / 质量分布 / 执行器 | [`docs/robot.md`](docs/robot.md) |
+| 训练、评估与探针 | [`docs/training.md`](docs/training.md) · [`docs/evaluation.md`](docs/evaluation.md) |
+| 上真机前要加的随机化（哪些在这套栈里其实是空操作） | [`docs/sim2real.md`](docs/sim2real.md) |
+| 测试都钉住了什么 | [`docs/testing.md`](docs/testing.md) |
+| 下一步做什么 | [`docs/roadmap.md`](docs/roadmap.md) |
+
+本地预览：`npm ci && npm run docs:dev`（地址是 `http://localhost:5173/base-sim/`，带 `base` 前缀是正常的）；`npm run docs:build` 就是 CI 用的检查 —— **内链写错会直接构建失败**，和原来的 `mkdocs build --strict` 一样。
+
 ## 目录结构
 
 ```
@@ -116,6 +134,15 @@ uv run python -m mjlab.scripts.play Mjlab-Velocity-Flat-MicroDuck --agent zero -
 # 回放训练好的行走策略（play 模式已自动用最宽指令范围、且不再随机推它）
 uv run mjpython -m mjlab.scripts.play Mjlab-Velocity-Flat-MicroDuck --agent trained \
   --viewer native --checkpoint-file logs/rsl_rl/microduck-walk/<时间戳>/model_XXX.pt
+
+# 一次看 4 只鸭子各跑各的（网页查看器, 不用窗口）
+#   --num-envs 4 = 4 份独立物理, 每只采样到**不同**的指令 —— 实测 4 只 vx 分别是
+#                  -0.03/-0.08/+0.33/+0.13, 所以它们真的各跑各的, 不是同一只的复制品
+#   play 模式把 env_spacing 从 4m 压到 1.2m, 4 只才进得了同一个画面
+#   viser 的 "Environment → Hide others" 默认**不勾选** = 同时画所有环境;
+#   勾上就只画 "Select" 滑块选中的那一只
+uv run python -m mjlab.scripts.play Mjlab-Velocity-Flat-MicroDuck --agent trained \
+  --checkpoint-file model_3250.pt --num-envs 4 --viewer viser
 
 # CPU 冒烟: 验证"行走任务训练链路能跑通"(约 10s/5 轮)
 scripts/run_cpu.sh Mjlab-Velocity-Flat-MicroDuck --env.scene.num-envs 16 --agent.max-iterations 5
@@ -317,6 +344,8 @@ config.json           # git 哈希 + 完整配置 (复现用)
 - [x] W2.8 **第四轮：修"原地蹦薅分"**（250 轮短测实测：离地 45%、摆动 121ms、竖向 |vz|=0.11，但机体系 vx 只有 0.07 —— 几乎不位移，`air_time` 却拿到 2.04/步 = 跟踪分的 25 倍）。修法：`air_time` 加**方向进度门**（原地/横着挪 = 0）+ 权重大幅下调 3.0→1.5；姿态项重做 —— 删掉以 **XML 默认姿势**为基准的 `joint_dev`（实测鸭子站稳时踝关节就差 17.6°，等于按它站不到的姿势扣分），换成以**实测站姿**为基准的 `stance_dev`(-0.2)。净效果（零训练成本重打分）：蹦跳 +2.76 → **+0.18**，站立 +3.52 → **+2.84**
 - [x] W2.7 **第三轮：修"躺平薅分"**（250 轮短测实测：躯干 0.041m、倾角 50°、有脚离地 92%、全回合 time_out，`air_time` 被薅到 0.76~1.43/步）。根因是 W2 的两处改动叠加（删高度终止 + 窗口下限 0.03）。修法：新增 `_posture_gate` 姿态门（乘在三个技能类奖励上）+ `fallen_too_long`（倒地 1 秒宽限后终止）。修后用同一策略复测：合计 **+1.81 → +0.05**，终止原因全变 `fallen_too_long`
 - [x] W2.0 **零成本奖励排序测量**（`eval_walk.py --terms`）：把旧 checkpoint 放进新奖励打分。第一版结果**排序还是平局**（vx=0.15：走路 +2.88 / 站着 +2.82），拆项发现 `body_ang_vel` 一项就占走路罚项的 -0.426 ⇒ 降到 -0.01 后**排序翻转**（+3.17 vs +2.98，vx=0.30 也翻），按训练配比加权 +3.20 vs +3.15。以后每次改奖励都先做这一步再谈大规模训练
+- [x] W2.13 **"摇头"的第二层：头/脖子链（38% 质量在 4 个没人管的自由度上）**：`scripts/probe_head_wobble.py` 实测 —— 头链 = `neck_pitch` 以下子树 {neck, neck_pitch, yaw_roll_motion, jaw_soft} = **279.9 g / 737.2 g = 38.0%**（jaw_soft 一项 188.8 g = 25.6%）；4 个头关节偏离默认姿势 RMS 9.8~**37.2°**（head_yaw 峰值 57°）且**全部锁在步频 1.700 Hz**；嘴尖在**躯干系**里左右 RMS 33.9 mm / **峰峰 94 mm**（这就是眼睛看到的摇头），与左右脚载荷 **|r|=0.92、8/8 环境一致**；但头链质心只动 7.0 mm ⇒ 整机质心仅 2.7 mm = 两脚间距的 **4%** ⇒ **是空转不是配重**（真正的倒重心是躯干扭动，领先抬脚 60~100 ms）。奖励上唯一管头的 `head_dev`(-0.2) 实测只值 **-0.04/步**（air_time +2.51/upstream…），14 个动作通道里有 4 个只值 1%。注意 `head_camera`/`tof`/`head_imu` 都挂在这条链上 ⇒ 相机输出在晃动里没有意义。三条修法（冻结 / 给头下命令 / 加惩罚）写在 cfg 顶部 P3 记录里；测试 `test_head_chain_carries_38_percent_of_the_mass` 钉住这个质量前提。**零成本冻结 A/B（同 checkpoint 只把动作通道 5,6,7,8 置零）**：vx=0.15 倾角 1.47°→**4.58°**、侧向占比 21.4%→**59.5%**、直线度 0.949→**0.663**；vx=0.30 倾角 1.82°→**4.51°**、侧向 12.5%→**30.4%**⇒ **现有策略是靠甩头稳住的（头 = 反作用质量），不能直接冻**；注意头链质心只走 2.7mm（步宽 4%）⇒ 起作用的是**角动量**不是位置。因此真机头舵机的 kp/延迟必须与 BAM 配置核对，否则是 sim2real 地雷（比"好不好看"重要）
+- [x] W2.12 **"摇头晃脑"的定量判定（第 3250 轮 checkpoint）**：新增 `scripts/probe_gait_wobble.py`（一次 rollout 提时间序列，不提训练）。实测躯干偏航摆动 **±12.4°**、wz RMS 1.86 rad/s（峰值 ≈240°/s），主频 1.625 Hz 与落脚步频 1.750 Hz 重合（相位锁在步态上），侧向速度只占前进速度的 12~21%，**路径直线度 0.95~0.97（没绕圈）**。关键判据：把 wz 与"左右脚载荷"做互相关，8/8 环境都在滞后 **−3~−5 步** 给出 |r|=0.60~0.67 ⇒ 扭动**先于**抬脚 ⇒ 那是这只 25cm 机器人的**倒重心机制**，不是没压住的抖动；奖励账上它也只用 0.49/步（track_ang_vel 1.0 里的一半）换 +2.51(air_time)+1.90(track_lin)。**结论：不改奖励去压它**；要让偏航轴听话，正路是给偏航轴下命令（turn-in-place 桶），见 cfg 顶部"P3 实测记录"
 - [ ] L4 GPU 全量训练（站立 → 行走），配合 TensorBoard 观察收敛
 - [ ] W2.1 **短期测量（250 轮 ≈ 13 分钟 @32 envs）**：判据 ① `Metrics/air_time_mean` 上行且 >0.05；② `eval_walk.py` 里"有脚离地%">20%、摆动时长>50ms、cmd=0.15 时 vx 误差<0.12；③ 终止里不再有 root_too_low。达标才进 W2.5 大规模训练
 - [ ] W2.5 GPU 全量训练行走策略（Linux + 4096 envs，3000+ 轮）
