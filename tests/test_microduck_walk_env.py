@@ -808,6 +808,12 @@ def test_play_cfg_widens_commands_and_drops_push():
     twist = cfg.commands["twist"]
     assert isinstance(twist, UniformVelocityCommandCfg)
     assert twist.ranges.lin_vel_x == (-0.10, 0.35)
+    # 每个轴的**上限 ≥0.1**: mjlab 的 viser 摇杆 GUI 把滑块 min 写死 0.1 且拿
+    # ranges.<轴>[1] 当 initial_value, 上限小于 0.1 会直接抛 ValueError(实测踩过)
+    for axis in ("lin_vel_x", "lin_vel_y", "ang_vel_z"):
+        assert max(abs(x) for x in getattr(twist.ranges, axis)) >= 0.1, (
+            f"{axis} 的范围上限 < 0.1 → viser 摇杆会崩"
+        )
     assert "push_robot" not in cfg.events
     assert "reset_joints" in cfg.events
 
@@ -828,3 +834,83 @@ def test_penalty_signs_are_negative_costs():
         value = term.func(env, **term.params)
         assert bool((value >= -1e-9).all()), f"{name} 返回了负值, 却挂着负权重 → 双重取负"
         assert bool((value * term.weight <= 1e-9).all()), f"{name} 加权后为正"
+
+
+def test_head_chain_carries_38_percent_of_the_mass():
+    """为什么"摇头"那么显眼: 头/脖子链挂着整机 38% 的质量, 而几乎没有任何奖励管它。
+
+    依据 `scripts/probe_head_wobble.py` 实测(model_3250, vx=0.15, 8 环境 × 500 步):
+      4 个头关节偏离默认姿势 RMS 9.8~37.2°(head_yaw 峰值 57°), 全部锁在步频 1.700Hz;
+      嘴尖在**躯干坐标系**里左右 RMS 33.9mm / 峰峰 94mm, 与左右脚载荷 |r|=0.92(8/8 环境);
+      但头链质心只动 7.0mm ⇒ 整机质心 2.7mm = 两脚间距的 4% ⇒ 是空转不是配重;
+      唯一管头的 head_dev(权重 -0.2)实测只值 -0.04/步(air_time +2.51)。
+
+    这里钉住"头确实很重"这个物理前提: 换模型/改质量会把上面全部结论作废, 必须重测。
+    头链 = neck_pitch 关节以下那棵子树; 用子树算能避免把 bearing_roll(躯干侧零件)算进去。
+    """
+    model = _model()
+    name = lambda i: mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, i)  # noqa: E731
+    children: dict[int, list[int]] = {}
+    for b in range(1, model.nbody):
+        children.setdefault(model.body_parentid[b], []).append(b)
+
+    def subtree(root):
+        out = [root]
+        for c in children.get(root, []):
+            out += subtree(c)
+        return out
+
+    neck_root = model.jnt_bodyid[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "neck_pitch")]
+    ids = subtree(neck_root)
+    head = sum(float(model.body_mass[i]) for i in ids)
+    total = float(model.body_mass.sum())
+    assert [name(i) for i in ids] == ["neck", "neck_pitch", "yaw_roll_motion", "jaw_soft"], (
+        f"头链的构成变了: {[name(i) for i in ids]} —— 摇头的结论要重做")
+    assert 0.36 < head / total < 0.40, (
+        f"头链质量占比 {head / total:.1%}(实测 38.0%), 变了就要重测摇头的幅度与结论")
+    assert float(model.body_mass[ids[-1]]) / total > 0.2, (
+        "jaw_soft(头本体)应占整机 20% 以上; 它变轻说明换了模型, 摇头结论作废")
+
+    # 这 4 个关节必须真的存在且被驱动(否则"头是自由维度"这个说法不成立)
+    joints = [mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, j) for j in range(model.njnt)]
+    for j in ("neck_pitch", "head_pitch", "head_yaw", "head_roll"):
+        assert j in joints, f"{j} 不在模型里"
+
+
+def test_encoder_bias_dr_only_reaches_the_actor_when_biased_is_set():
+    """钉住一个"静默 no-op"坑: dr.encoder_bias 采样到的偏置, 不设 biased=True 就完全没用。
+
+    实测(scripts/probe_sim2real_dr.py, 2026-09-12): 加了 encoder_bias 事件但用默认的
+    `joint_pos_rel` 时, |actor观测 - 真实关节角| = **0.000e+00** —— 配置能跑、训练不报错、
+    偏置也确实采样了, 可是策略一个数字都没看到。设 biased=True 后观测与 encoder_bias 之差
+    1.5e-8(相等)。上游同一个坑写在他们的 velocity cfg 注释里。
+    """
+    import copy
+
+    from mjlab.envs.mdp import dr
+    from mjlab.managers import EventTermCfg, SceneEntityCfg
+
+    cfg = microduck_walk_env_cfg()
+    cfg.scene.num_envs = 2
+    cfg.events.pop("push_robot", None)
+    cfg.curriculum = {}
+    cfg.events["encoder_bias"] = EventTermCfg(
+        func=dr.encoder_bias, mode="startup",
+        params={"asset_cfg": SceneEntityCfg("robot"), "bias_range": (-0.015, 0.015)})
+    cfg.observations["actor"].terms["joint_pos"] = copy.deepcopy(
+        cfg.observations["actor"].terms["joint_pos"])
+    cfg.observations["actor"].terms["joint_pos"].params["biased"] = True
+    env = ManagerBasedRlEnv(cfg=cfg, device="cpu")
+    try:
+        robot = env.scene["robot"]
+        bias = robot.data.encoder_bias
+        assert float(bias.abs().max()) > 1e-3, "encoder_bias 没有被采样(应为 ±0.015 均匀分布)"
+        obs = env.observation_manager.compute()["actor"][:, :14]
+        true_rel = robot.data.joint_pos - robot.data.default_joint_pos
+        # actor 看到的是"带编码器偏置"的关节角 = 真值 + 偏置
+        assert torch.allclose(obs, true_rel + bias, atol=1e-6), (
+            "actor 的 joint_pos 槽没有带上 encoder_bias —— 说明 biased=True 没生效"
+            "(这正是要钉住的静默 no-op)")
+        assert not torch.allclose(obs, true_rel, atol=1e-6)
+    finally:
+        env.close()

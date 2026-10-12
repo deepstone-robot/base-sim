@@ -43,11 +43,22 @@ COMMAND_GRID = [(0.0, 0.0), (0.15, 0.0), (0.30, 0.0), (0.15, 0.3), (0.15, -0.3)]
 AIR_WINDOW = (0.125, 0.300)  # air_time 奖励窗口, 用来判断"步子迈得像不像"
 
 
-def build_env(num_envs: int, vx: float, wz: float, track_std: float | None = None) -> RslRlVecEnvWrapper:
-    """固定指令 + 关掉随机推的评估环境(保留终止和重置, 好统计回合结局)。"""
+def build_env(
+    num_envs: int,
+    vx: float,
+    wz: float,
+    track_std: float | None = None,
+    episode_length_s: float = 4.0,
+) -> RslRlVecEnvWrapper:
+    """固定指令 + 关掉随机推的评估环境(保留终止和重置, 好统计回合结局)。
+
+    episode_length_s 必须在构造前设好: 回合长度会烘进 termination manager,
+    构造完再改 env.episode_length_s 是不生效的(会看到"正好在第 200 步全体终止")。
+    """
     cfg = microduck_walk_env_cfg()
     cfg.scene.num_envs = num_envs
-    cfg.episode_length_s = 4.0          # 一次尝试最多 4s(200 步), 方便多攒几个回合
+    cfg.episode_length_s = episode_length_s  # 一次尝试最多这么久, 够攒几个回合
+
     cfg.events.pop("push_robot", None)   # 隔离变量: 不要随机扰动
     twist = cfg.commands["twist"]
     twist.rel_standing_envs = 0.0        # 不许有环境被强行置零指令
